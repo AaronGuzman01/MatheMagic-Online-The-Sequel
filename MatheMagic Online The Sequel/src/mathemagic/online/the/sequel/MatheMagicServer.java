@@ -17,38 +17,28 @@ import java.util.List;
  * @author Aaron Guzman
  */
 public class MatheMagicServer {
+    private static ServerSocket serverSocket;
     
     private static final int SERVER_PORT = 9862;
 
     private static final String FILES_PATH = "Solution Files/";
 
-    private static String request;
-
-    private static String command;
-
-    private static String userLogged;
-
-    private static boolean rootLogin = false;
-
-    private static boolean loggedIn = false;
-
-    private static Socket socket;
-
-    private static DataInputStream inputFromClient;
-
-    private static DataOutputStream outputToClient;
-
     private static List<String> userList;
+    
+    private static boolean[] usersLoggedIn;
 
     private static File solutionFile;
+    
+    private static int clients = 0;
 
     public static void main(String[] args) {
         try {
             //creates server socket
-            ServerSocket serverSocket = new ServerSocket(SERVER_PORT);
-
+            serverSocket = new ServerSocket(SERVER_PORT);
+            
             //gets all valid users
             userList = Files.readAllLines(Path.of("logins.txt"));
+            usersLoggedIn = new boolean[userList.size()];
 
             //removes unnecessary empty user
             userList.remove(" ");
@@ -56,35 +46,62 @@ public class MatheMagicServer {
             //prints server start message to console
             System.out.println("Server started at " + new Date());
 
-            //receives client connection and prints message to console
-            socket = serverSocket.accept();
-
-            printMessage("Client connection established");
-
-            //assigns input and output streams
-            inputFromClient = new DataInputStream(socket.getInputStream());
-
-            outputToClient = new DataOutputStream(socket.getOutputStream());
-
-            //while loop to continuously process user requests and connections
             while (true) {
-                //checks if client connections is closed
-                if (socket.isClosed()) {
-                    //gets next client connection and prints message to console
-                    socket = serverSocket.accept();
+                //receives client connection and prints message to console
+                Socket socket = serverSocket.accept();
+                clients++;
+                
+                printMessage("Client connection established");
+                
+                new Thread(() -> {
+                    HandleClient(socket, clients);
+                    
+                    Thread.yield();
+                }).start();
+            }
+        } catch (IOException ex) {
+            ex.printStackTrace();
+        }
+    }
+    
+    /**
+     * The HandleClient method is used to handle a new client connecting to the
+     * server
+     */
+    
+    private static void HandleClient(Socket client, int num) {
+        try {
+            DataInputStream inputFromClient;
+            DataOutputStream outputToClient;
+            
+            //assigns input and output streams
+            inputFromClient = new DataInputStream(client.getInputStream());
+            
+            outputToClient = new DataOutputStream(client.getOutputStream());
+            
+            GetMessage(inputFromClient, outputToClient, client, num);
 
-                    printMessage("Client connection established");
+        } catch (IOException ex) {
+            ex.printStackTrace();
+        }
+    }
+    
+    /**
+     * The GetMessage method is used to process a client's message to the server
+     */
+    
+    public static void GetMessage(DataInputStream inputFromClient, DataOutputStream outputToClient, Socket client, int clientNum) {    
+        String request;
+        String command;
+        String userLogged = null;
+        boolean rootLogin = false;
+        boolean loggedIn = false;
+        
+        while (true) {
+            try {
+                request = inputFromClient.readUTF();    
 
-                    //assigns new input and output streams
-                    inputFromClient = new DataInputStream(socket.getInputStream());
-
-                    outputToClient = new DataOutputStream(socket.getOutputStream());
-                }
-
-                //receives request from client and prints message to console
-                request = inputFromClient.readUTF();
-
-                printMessage("Client Request: " + request);
+                printMessage("Client "+ String.valueOf(clientNum) + " Request: " + request);
 
                 //checks if client request contains a whitespace (indicates potential flag or data)
                 if (request.contains(" ")) {
@@ -178,13 +195,13 @@ public class MatheMagicServer {
                                 outputToClient.writeUTF(solution + "\n");
 
                                 //writes solution to client file
-                                writeToFile("radius " + (int) val + ": " + solution);
+                                writeToFile("radius " + (int) val + ": " + solution, userLogged);
 
                             } else if (problem.isEmpty() || problem.isBlank()) { //checks if problem data is empty or blank
                                 //sends radius error message to client and writes message to client file
                                 outputToClient.writeUTF("Error: No radius found \n");
 
-                                writeToFile("Error: No radius found \n");
+                                writeToFile("Error: No radius found \n", userLogged);
                             } else {
                                 //sends invalid format emessage to client
                                 outputToClient.writeUTF("301 message format error \n");
@@ -212,7 +229,7 @@ public class MatheMagicServer {
                                 outputToClient.writeUTF(solution + "\n");
 
                                 //writes solution to client file
-                                writeToFile("sides " + (int) val1 + " " + (int) val2 + ": " + solution);
+                                writeToFile("sides " + (int) val1 + " " + (int) val2 + ": " + solution, userLogged);
 
                             } else if (problem.matches(" \\d+\\s*")) { //checks if problem data matches the second correct data format
                                 //gets side value from problem data and calulates permeter and area using this value
@@ -228,13 +245,13 @@ public class MatheMagicServer {
                                 outputToClient.writeUTF(solution + "\n");
 
                                 //writes solution to client file
-                                writeToFile("sides " + (int) val + " " + (int) val + ": " + solution);
+                                writeToFile("sides " + (int) val + " " + (int) val + ": " + solution, userLogged);
 
                             } else if (problem.isEmpty() || problem.isBlank()) { //checks if problem data is empty or blank
                                 //sends sides error message to client and writes message to client file
                                 outputToClient.writeUTF("Error: No sides found \n");
 
-                                writeToFile("Error: No sides found \n");
+                                writeToFile("Error: No sides found \n", userLogged);
                             } else {
                                 //sends invalid format message to client
                                 outputToClient.writeUTF("301 message format error \n");
@@ -273,7 +290,7 @@ public class MatheMagicServer {
                 } else if (command.equals("LIST")) { //checks if command received is LIST
                     //gets flag from client request
                     String flag = request.substring(request.indexOf(" "), request.length());
-                    
+
                     //checks if request is in valid format
                     if (flag.charAt(1) != '-') {
                         //sends invalid format message to client
@@ -318,6 +335,28 @@ public class MatheMagicServer {
                         //sends root user error message to client
                         outputToClient.writeUTF("Error: You must be the root user to use this command \n");
                     }
+                } else if (command.matches("^MESSAGE *")){ //checks if command received is MESSAGE
+                    //checks if user is logged in
+                    if (loggedIn) {
+                        String user = request.substring(request.indexOf((" ")));
+                        user = user.trim();
+                        
+                        if (user.contains(" ")) {
+                            String message = user.substring(request.indexOf(" "));
+                            user = user.substring(0, request.indexOf(" "));
+                            user = user.trim();
+                            
+                            if (userFound(user)) {
+                                
+                            }
+                        } else {
+                            //sends invalid format message to client
+                            outputToClient.writeUTF("301 message format error \n");
+                        }
+                    } else {
+                        //sends login error message to client
+                        outputToClient.writeUTF("Error: You must login to use this command \n");
+                    }
                 } else if (request.matches("^SHUTDOWN *")) { //checks if request received is SHUTDOWN
                     //checks if user is logged in
                     if (loggedIn) {
@@ -325,7 +364,7 @@ public class MatheMagicServer {
                         outputToClient.writeUTF("200 OK \n");
 
                         //closes client connection
-                        socket.close();
+                        client.close();
 
                         //closes server
                         serverSocket.close();
@@ -347,7 +386,7 @@ public class MatheMagicServer {
                         outputToClient.writeUTF("200 OK \n");
 
                         //closes client connection
-                        socket.close();
+                        client.close();
                     } else {
                         //sends login error message to client
                         outputToClient.writeUTF("Error: You must login to use this command \n");
@@ -356,12 +395,12 @@ public class MatheMagicServer {
                     //sends invalid format message to client
                     outputToClient.writeUTF("300 invalid command \n");
                 }
+            } catch (IOException ex) {
+                ex.printStackTrace();
             }
-        } catch (IOException ex) {
-            ex.printStackTrace();
         }
     }
-
+    
     /**
      * The printMessage method is used to print a message to the server's
      * console
@@ -434,10 +473,10 @@ public class MatheMagicServer {
      * The writeToFile method will receive a string and write that string to the
      * current logged in user's solution file
      */
-    private static void writeToFile(String str) throws IOException {
+    private static void writeToFile(String str, String user) throws IOException {
         //try-with-resource statment to open user's solution file and ensure it is closed
         //also, file is opened in append mode (denoted by the true argument in FileWriter)
-        try (FileWriter solutinFile = new FileWriter(FILES_PATH + userLogged + "_solutions.txt", true)) {
+        try (FileWriter solutinFile = new FileWriter(FILES_PATH + user + "_solutions.txt", true)) {
             //writes string with newline character to solution file
             solutinFile.write(str + "\n");
         }
