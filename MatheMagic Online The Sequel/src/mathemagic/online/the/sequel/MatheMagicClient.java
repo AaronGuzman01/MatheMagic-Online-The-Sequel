@@ -5,8 +5,6 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.Socket;
 import java.util.Scanner;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 /**
  *
@@ -17,7 +15,9 @@ public class MatheMagicClient {
     private static final int SERVER_PORT = 9862;
     
     private static final String HOST = "localhost";
-
+    
+    private static Socket socket;
+            
     //creates output and input stream and message variables
     private static DataOutputStream toServer;
     private static DataInputStream fromServer;
@@ -30,7 +30,7 @@ public class MatheMagicClient {
         
         try {
             //establishes connection with server
-            Socket socket = new Socket(HOST, SERVER_PORT);
+            socket = new Socket(HOST, SERVER_PORT);
             
             System.out.println("MathMagic connection established");
             
@@ -43,12 +43,12 @@ public class MatheMagicClient {
             System.out.println("Start entering a command:\n");
             
             new Thread(() -> {
-                while (true) {
+                while (true && !socket.isClosed()) {
                     HandleMessage();
                 }
             }).start();
             
-            while (true) {
+            while (true && !socket.isClosed()) {
                 //gets user input
                 message = input.nextLine();
                 
@@ -70,7 +70,7 @@ public class MatheMagicClient {
             //prints server message to console
             System.out.println(message);
         } catch (IOException ex) {
-            Logger.getLogger(MatheMagicClient.class.getName()).log(Level.SEVERE, null, ex);
+            ex.printStackTrace();
         }
     }
 }

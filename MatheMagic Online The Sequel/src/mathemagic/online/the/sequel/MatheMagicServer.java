@@ -17,28 +17,34 @@ import java.util.List;
  * @author Aaron Guzman
  */
 public class MatheMagicServer {
+
     private static ServerSocket serverSocket;
-    
+
     private static final int SERVER_PORT = 9862;
 
     private static final String FILES_PATH = "Solution Files/";
 
     private static List<String> userList;
-    
+
     private static boolean[] usersLoggedIn;
 
+    private static DataOutputStream[] clientOutputs;
+
     private static File solutionFile;
-    
+
     private static int clients = 0;
+    
+    private static boolean shutdown = false;
 
     public static void main(String[] args) {
         try {
             //creates server socket
             serverSocket = new ServerSocket(SERVER_PORT);
-            
+
             //gets all valid users
             userList = Files.readAllLines(Path.of("logins.txt"));
             usersLoggedIn = new boolean[userList.size()];
+            clientOutputs = new DataOutputStream[userList.size()];
 
             //removes unnecessary empty user
             userList.remove(" ");
@@ -46,16 +52,16 @@ public class MatheMagicServer {
             //prints server start message to console
             System.out.println("Server started at " + new Date());
 
-            while (true) {
+            while (true && !shutdown) {
                 //receives client connection and prints message to console
                 Socket socket = serverSocket.accept();
                 clients++;
-                
+
                 printMessage("Client connection established");
-                
+
                 new Thread(() -> {
                     HandleClient(socket, clients);
-                    
+
                     Thread.yield();
                 }).start();
             }
@@ -63,52 +69,49 @@ public class MatheMagicServer {
             ex.printStackTrace();
         }
     }
-    
+
     /**
      * The HandleClient method is used to handle a new client connecting to the
      * server
      */
-    
     private static void HandleClient(Socket client, int num) {
         try {
             DataInputStream inputFromClient;
             DataOutputStream outputToClient;
-            
+
             //assigns input and output streams
             inputFromClient = new DataInputStream(client.getInputStream());
-            
+
             outputToClient = new DataOutputStream(client.getOutputStream());
-            
+
             GetMessage(inputFromClient, outputToClient, client, num);
 
         } catch (IOException ex) {
             ex.printStackTrace();
         }
     }
-    
+
     /**
      * The GetMessage method is used to process a client's message to the server
      */
-    
-    public static void GetMessage(DataInputStream inputFromClient, DataOutputStream outputToClient, Socket client, int clientNum) {    
+    public static void GetMessage(DataInputStream inputFromClient, DataOutputStream outputToClient, Socket client, int clientNum) {
         String request;
         String command;
         String userLogged = null;
         boolean rootLogin = false;
         boolean loggedIn = false;
-        
-        while (true) {
-            try {
-                request = inputFromClient.readUTF();    
 
-                printMessage("Client "+ String.valueOf(clientNum) + " Request: " + request);
+        while (true && !shutdown) {
+            try {
+                request = inputFromClient.readUTF();
+
+                printMessage("Client " + String.valueOf(clientNum) + " Request: " + request);
 
                 //checks if client request contains a whitespace (indicates potential flag or data)
                 if (request.contains(" ")) {
                     //gets command portion of client request
                     command = request.substring(0, request.indexOf(" "));
-                }
-                else {
+                } else {
                     //sets command to empty
                     command = "";
                 }
@@ -124,42 +127,60 @@ public class MatheMagicServer {
                         if (loginInfo.matches(".+ .+")) {
                             //creates user found flag and sets it to false
                             boolean found = false;
+                            boolean alreadyLogged = false;
+                            int index = 0;
 
                             //for loop to check each valid user
                             for (String user : userList) {
                                 //checks if login information matches current valid user
                                 if (user.equals(loginInfo)) {
-                                    //assigns current logged username
-                                    userLogged = user.substring(0, request.indexOf(" "));
+                                    if (!usersLoggedIn[index]) {
+                                        //assigns current logged username
+                                        userLogged = user.substring(0, request.indexOf(" "));
 
-                                    //removes unnecessary whitespaces
-                                    userLogged = userLogged.trim();
+                                        //removes unnecessary whitespaces
+                                        userLogged = userLogged.trim();
 
-                                    //sets logged in flag
-                                    loggedIn = true;
+                                        //sets logged in flag
+                                        loggedIn = true;
 
-                                    //sets found flag
-                                    found = true;
+                                        usersLoggedIn[index] = true;
+                                        clientOutputs[index] = outputToClient;
 
-                                    //checks if user logged in is root user and sets root login flag
-                                    if (userLogged.equals("root")) {
-                                        rootLogin = true;
+                                        //sets found flag
+                                        found = true;
+
+                                        //checks if user logged in is root user and sets root login flag
+                                        if (userLogged.equals("root")) {
+                                            rootLogin = true;
+                                        }
+
+                                        //prepares current logged user's solution file
+                                        handleUserFile(userLogged);
+
+                                        //sends success message to client
+                                        outputToClient.writeUTF("SUCCESS \n");
+
+                                        //breaks from user loop
+                                        break;
+                                    } else {
+                                        alreadyLogged = true;
+
+                                        break;
                                     }
-
-                                    //prepares current logged user's solution file
-                                    handleUserFile(userLogged);
-
-                                    //sends success message to client
-                                    outputToClient.writeUTF("SUCCESS \n");
-
-                                    //breaks from user loop
-                                    break;
                                 }
+
+                                index++;
                             }
 
-                            //check if the user was not found and sends failure message to client
-                            if (!found) {
-                                outputToClient.writeUTF("FAILURE: Please provide a correct username and password. Try again. \n");
+                            //check if the user is already logged in and sends message to client
+                            if (alreadyLogged) {
+                                outputToClient.writeUTF("FAILURE: User is already logged in. \n");
+                            } else {
+                                //check if the user was not found and sends failure message to client
+                                if (!found) {
+                                    outputToClient.writeUTF("FAILURE: Please provide a correct username and password. Try again. \n");
+                                }
                             }
                         } else {
                             //sends invalid format emessage to client
@@ -295,8 +316,7 @@ public class MatheMagicServer {
                     if (flag.charAt(1) != '-') {
                         //sends invalid format message to client
                         outputToClient.writeUTF("301 message format error \n");
-                    }
-                    else if (rootLogin) { //checks if user logged in is root user
+                    } else if (rootLogin) { //checks if user logged in is root user
                         //checks if flag is in correct format
                         if (flag.matches("^ -all *")) {
                             //creates list of strings to store individual interactions, a string for the users' name, and a string to
@@ -335,19 +355,56 @@ public class MatheMagicServer {
                         //sends root user error message to client
                         outputToClient.writeUTF("Error: You must be the root user to use this command \n");
                     }
-                } else if (command.matches("^MESSAGE *")){ //checks if command received is MESSAGE
+                } else if (command.matches("^MESSAGE *")) { //checks if command received is MESSAGE
                     //checks if user is logged in
                     if (loggedIn) {
-                        String user = request.substring(request.indexOf((" ")));
+                        //removes command portion from request
+                        String user = request.substring(request.indexOf((' ')));
                         user = user.trim();
-                        
+
+                        //checks if string contains correct format
                         if (user.contains(" ")) {
-                            String message = user.substring(request.indexOf(" "));
-                            user = user.substring(0, request.indexOf(" "));
+                            //obtains user's name and message
+                            String message = user.substring(user.indexOf(" "));
+                            user = user.substring(0, user.indexOf(" "));
                             user = user.trim();
+                            message = message.trim();
                             
-                            if (userFound(user)) {
-                                
+                            //checks if user is valid or if command flag is valid
+                            if (hasUser(user) || user.matches("-all")) {
+                                //checks for command flag
+                                if (user.matches("-all")) {
+                                    //checks if user logged in is root user
+                                    if (rootLogin) {
+                                        //calls sendMessageAll to write message to all clients
+                                        sendMessageAll(message, userLogged, clientNum);
+                                        
+                                        outputToClient.writeUTF(" ");
+                                    } else {
+                                        //sends root user error message to client
+                                        outputToClient.writeUTF("Error: You must be the root user to use this command \n");
+                                    }
+                                } else {
+                                    //prints sending message to concole
+                                    printMessage("Message from client " + clientNum + ": \n" + message);
+                                    printMessage("Sending to " + user);
+                                    
+                                    int userIndex = getClient(user);
+
+                                    if (usersLoggedIn[userIndex]) {
+                                        clientOutputs[userIndex].writeUTF("Message from " + userLogged + ": \n" + message + '\n');
+                                    } else {
+                                        //sends user is not logged in message to client and console
+                                        outputToClient.writeUTF("User " + user + " is not logged in \n");
+                                        printMessage("User " + user + " is not logged in");
+                                        printMessage("Informing client");
+                                    }
+                                }
+                            } else {
+                                //sends user does not exist message to client and console
+                                outputToClient.writeUTF("User " + user + " does not exist \n");
+                                printMessage("User " + user + " does not exist");
+                                printMessage("Informing client");
                             }
                         } else {
                             //sends invalid format message to client
@@ -369,6 +426,9 @@ public class MatheMagicServer {
                         //closes server
                         serverSocket.close();
 
+                        //sets the shutdown flag
+                        shutdown = true;
+                        
                         //breaks from while loop
                         break;
                     } else {
@@ -377,6 +437,13 @@ public class MatheMagicServer {
                     }
                 } else if (request.matches("^LOGOUT *")) { //checks if request received is LOGOUT
                     if (loggedIn) {
+                        //gets client index
+                        int index = getClient(userLogged);
+                        
+                        //resets client login flag and output stream
+                        usersLoggedIn[index] = false;
+                        clientOutputs[index] = null;
+                        
                         //resets logged in and root login flags and clears user logged in
                         loggedIn = false;
                         rootLogin = false;
@@ -384,9 +451,6 @@ public class MatheMagicServer {
 
                         //sends 200 OK message to client
                         outputToClient.writeUTF("200 OK \n");
-
-                        //closes client connection
-                        client.close();
                     } else {
                         //sends login error message to client
                         outputToClient.writeUTF("Error: You must login to use this command \n");
@@ -401,6 +465,91 @@ public class MatheMagicServer {
         }
     }
     
+    /**
+     * The hasUser method find if a specified user is valid
+     */
+    private static boolean hasUser(String user) {
+        String name;
+        
+        //checks every valid user
+        for (String userName : userList) {
+            //obtains name from current user
+            name = userName.substring(0, userName.indexOf(" "));
+            name = name.trim();
+            
+            //checks if specified user is equal to name
+            if (user.equals(name)) {
+                return true;
+            }
+        }
+        
+        return false;
+    }
+
+    /**
+     * The getClient method is used to get the index of a client corresponding
+     * to the client's login flag and output stream
+     */
+    private static int getClient(String user) {
+        int index = 0;
+        String name;
+
+        //checks every valid user
+        for (String client : userList) {
+            //obtains name from current user
+            name = client.substring(0, client.indexOf(" "));
+            name = name.trim();
+            
+            //checks if specified user is equal to name
+            if (user.equals(name)) {
+                return index;
+            }
+
+            index++;
+        }
+
+        return -1;
+    }
+    
+    /**
+     * The sendMessageAll method is used to print a message from root to every 
+     * client logged in to the server 
+     */
+    private static void sendMessageAll(String message, String sender, int num) {
+        int index = 0;
+        String client;
+        String serverMsg = "Sending to ";
+        
+        //checks every valid user
+        for (String user : userList) {
+            //checks if current index is not root user
+            if (index > 0) {
+                //checks if user at index is logged in
+                if (usersLoggedIn[index]) {
+                    try {
+                        //obtains client name 
+                        client = user.substring(0, user.indexOf(" "));
+                        client = client.trim();
+                        
+                        //adds name to server message
+                        serverMsg += client + ", ";
+                        
+                        //displays root message to current client
+                        clientOutputs[index].writeUTF("Message from " + sender + ": \n" + message + '\n');
+                    } catch (IOException ex) {
+                        ex.printStackTrace();
+                    }
+                }
+            }
+            
+            index++;
+        }
+        
+        //prints server message to console
+        printMessage("Message from client " + num + ": \n" + message);
+        printMessage(serverMsg);
+    }
+
     /**
      * The printMessage method is used to print a message to the server's
      * console

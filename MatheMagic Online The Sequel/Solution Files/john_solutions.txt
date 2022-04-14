@@ -1,0 +1,1 @@
+sides 2 2: Rectangle’s perimeter is 8.00 and area is 4.00
