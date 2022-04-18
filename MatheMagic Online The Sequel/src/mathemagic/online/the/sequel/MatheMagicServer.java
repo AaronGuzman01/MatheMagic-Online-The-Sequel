@@ -403,6 +403,8 @@ public class MatheMagicServer {
 
                                     if (usersLoggedIn[userIndex]) {
                                         clientOutputs[userIndex].writeUTF("Message from " + userLogged + ": \n" + message + '\n');
+                                        
+                                        outputToClient.writeUTF(" ");
                                     } else {
                                         //sends user is not logged in message to client and console
                                         outputToClient.writeUTF("User " + user + " is not logged in \n");
