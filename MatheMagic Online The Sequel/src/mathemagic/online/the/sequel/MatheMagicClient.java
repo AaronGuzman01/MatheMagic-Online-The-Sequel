@@ -52,8 +52,10 @@ public class MatheMagicClient {
                 //gets user input
                 message = input.nextLine();
                 
-                //sends input to server
-                toServer.writeUTF(message);
+                //sends input to server if server is not closed
+                if (!socket.isClosed()) {
+                    toServer.writeUTF(message);
+                }
             }
             
         } catch (IOException ex) {
@@ -64,11 +66,13 @@ public class MatheMagicClient {
     
     private static void HandleMessage() {
         try {
-            //receives input from user
-            message = fromServer.readUTF();
-            
-            //prints server message to console
-            System.out.println(message);
+            //receives input from server if server is not closed
+            if (!socket.isClosed()) {
+                message = fromServer.readUTF();
+
+                //prints server message to console
+                System.out.println(message);
+            }
         } catch (IOException ex) {
             ex.printStackTrace();
         }

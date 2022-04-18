@@ -9,6 +9,7 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 
@@ -25,6 +26,8 @@ public class MatheMagicServer {
     private static final String FILES_PATH = "Solution Files/";
 
     private static List<String> userList;
+    
+    private static ArrayList<Socket> clients;
 
     private static boolean[] usersLoggedIn;
 
@@ -32,7 +35,7 @@ public class MatheMagicServer {
 
     private static File solutionFile;
 
-    private static int clients = 0;
+    private static int clientNums = 0;
     
     private static boolean shutdown = false;
 
@@ -43,8 +46,11 @@ public class MatheMagicServer {
 
             //gets all valid users
             userList = Files.readAllLines(Path.of("logins.txt"));
+            
+            //initializes login flags, and output streams and client sockets variables
             usersLoggedIn = new boolean[userList.size()];
             clientOutputs = new DataOutputStream[userList.size()];
+            clients = new ArrayList<Socket>();
 
             //removes unnecessary empty user
             userList.remove(" ");
@@ -55,12 +61,12 @@ public class MatheMagicServer {
             while (true && !shutdown) {
                 //receives client connection and prints message to console
                 Socket socket = serverSocket.accept();
-                clients++;
+                clientNums++;
 
                 printMessage("Client connection established");
 
                 new Thread(() -> {
-                    HandleClient(socket, clients);
+                    HandleClient(socket, clientNums);
 
                     Thread.yield();
                 }).start();
@@ -78,12 +84,16 @@ public class MatheMagicServer {
         try {
             DataInputStream inputFromClient;
             DataOutputStream outputToClient;
+            
+            //adds client to list of clients
+            clients.add(client);
 
             //assigns input and output streams
             inputFromClient = new DataInputStream(client.getInputStream());
 
             outputToClient = new DataOutputStream(client.getOutputStream());
 
+            //runs GetMessage to receive requests from client
             GetMessage(inputFromClient, outputToClient, client, num);
 
         } catch (IOException ex) {
@@ -420,8 +430,10 @@ public class MatheMagicServer {
                         //sends 200 OK message to client
                         outputToClient.writeUTF("200 OK \n");
 
-                        //closes client connection
-                        client.close();
+                        //closes client connections
+                        for (Socket currClient : clients) {
+                            currClient.close();
+                        }
 
                         //closes server
                         serverSocket.close();
