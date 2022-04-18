@@ -96,7 +96,7 @@ root:
 	radius 56: Circle’s circumference is 351.86 and area is 9852.03
 	sides 350 34: Rectangle’s perimeter is 768.00 and area is 11900.0
 john:
-
+	No interactions yet
 sally:
 	No interactions yet
 qiang:
